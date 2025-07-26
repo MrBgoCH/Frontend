@@ -295,14 +295,55 @@ app.post('/api/setup-database', async (req, res) => {
       `);
     }
     
-    // Create other tables based on your schema (will need your input for exact structure)
-    // For now, just confirming companies table is ready
+    // Check if monitoring_configs table exists
+    const monitoringCheck = await client.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'monitoring_configs'
+    `);
+    
+    if (monitoringCheck.rows.length === 0) {
+      // Create monitoring_configs table if it doesn't exist
+      await client.query(`
+        CREATE TABLE monitoring_configs (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+          days_back INTEGER DEFAULT 7,
+          max_products INTEGER DEFAULT 50,
+          check_frequency VARCHAR(20) DEFAULT 'weekly',
+          is_enabled BOOLEAN DEFAULT true,
+          last_monitored TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(company_id)
+        )
+      `);
+    }
+    
+    // Check if products table exists (will be created once you provide structure)
+    const productsCheck = await client.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'products'
+    `);
+    
+    // Create active_companies_for_monitoring view
+    await client.query(`
+      CREATE OR REPLACE VIEW active_companies_for_monitoring AS
+      SELECT c.*, mc.days_back, mc.max_products, mc.check_frequency, 
+             mc.is_enabled as monitoring_enabled, mc.last_monitored
+      FROM companies c
+      LEFT JOIN monitoring_configs mc ON c.id = mc.company_id
+      WHERE c.is_active = true AND (mc.is_enabled = true OR mc.is_enabled IS NULL)
+    `);
     
     await client.query('COMMIT');
     res.json({ 
       message: 'Database setup completed successfully',
       companiesTable: 'Ready',
-      note: 'Please provide structure for monitoring_configs and products tables'
+      monitoringConfigsTable: 'Ready',
+      productsTable: productsCheck.rows.length > 0 ? 'Exists' : 'Waiting for structure',
+      activeCompaniesView: 'Created'
     });
   } catch (err) {
     await client.query('ROLLBACK');
