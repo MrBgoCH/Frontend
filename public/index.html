@@ -355,12 +355,24 @@
 
                 <h3>Add Single Company</h3>
                 <div class="form-group">
-                    <label for="companyName">Company Name</label>
-                    <input type="text" id="companyName" placeholder="Enter company name">
+                    <label for="companyName">Company Name *</label>
+                    <input type="text" id="companyName" placeholder="Enter company name" required>
                 </div>
                 <div class="form-group">
-                    <label for="companyWebsite">Website (optional)</label>
-                    <input type="url" id="companyWebsite" placeholder="https://example.com">
+                    <label for="companyUrl">Website URL</label>
+                    <input type="url" id="companyUrl" placeholder="https://example.com">
+                </div>
+                <div class="form-group">
+                    <label for="companyDomain">Domain</label>
+                    <input type="text" id="companyDomain" placeholder="example.com">
+                </div>
+                <div class="form-group">
+                    <label for="companyIndustry">Industry</label>
+                    <input type="text" id="companyIndustry" placeholder="e.g., Technology, Healthcare, Finance">
+                </div>
+                <div class="form-group">
+                    <label for="companyDescription">Description</label>
+                    <textarea id="companyDescription" placeholder="Company description"></textarea>
                 </div>
                 <button class="btn btn-primary" onclick="addCompany()">Add Company</button>
                 <button class="btn btn-secondary" onclick="loadCompanies()">Refresh List</button>
@@ -371,13 +383,17 @@
                         <tr>
                             <th>ID</th>
                             <th>Name</th>
-                            <th>Website</th>
+                            <th>URL</th>
+                            <th>Domain</th>
+                            <th>Industry</th>
+                            <th>Description</th>
+                            <th>Active</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="companiesTableBody">
-                        <tr><td colspan="5">Loading...</td></tr>
+                        <tr><td colspan="9">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -435,31 +451,34 @@
                     </select>
                 </div>
 
-                <h4>Monitoring Flags</h4>
+                <h4>Monitoring Settings</h4>
                 <div class="config-grid" id="configGrid">
                     <div class="config-item">
-                        <label><input type="checkbox" id="emailAlerts"> Email Alerts</label>
+                        <label for="daysBack">Days Back to Monitor</label>
+                        <input type="number" id="daysBack" min="1" max="365" value="7" placeholder="7">
+                        <small>How many days back to check for data</small>
                     </div>
                     <div class="config-item">
-                        <label><input type="checkbox" id="smsAlerts"> SMS Alerts</label>
+                        <label for="maxProducts">Max Products to Monitor</label>
+                        <input type="number" id="maxProducts" min="1" max="1000" value="50" placeholder="50">
+                        <small>Maximum number of products to track</small>
                     </div>
                     <div class="config-item">
-                        <label><input type="checkbox" id="uptimeMonitoring"> Uptime Monitoring</label>
+                        <label for="checkFrequency">Check Frequency</label>
+                        <select id="checkFrequency">
+                            <option value="daily">Daily</option>
+                            <option value="weekly" selected>Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="hourly">Hourly</option>
+                        </select>
+                        <small>How often to run monitoring checks</small>
                     </div>
                     <div class="config-item">
-                        <label><input type="checkbox" id="performanceTracking"> Performance Tracking</label>
-                    </div>
-                    <div class="config-item">
-                        <label><input type="checkbox" id="errorLogging"> Error Logging</label>
-                    </div>
-                    <div class="config-item">
-                        <label><input type="checkbox" id="securityScanning"> Security Scanning</label>
-                    </div>
-                    <div class="config-item">
-                        <label><input type="checkbox" id="backupMonitoring"> Backup Monitoring</label>
-                    </div>
-                    <div class="config-item">
-                        <label><input type="checkbox" id="apiMonitoring"> API Monitoring</label>
+                        <label>
+                            <input type="checkbox" id="isEnabled" checked> 
+                            Enable Monitoring
+                        </label>
+                        <small>Turn monitoring on/off for this company</small>
                     </div>
                 </div>
 
@@ -468,14 +487,10 @@
                     <p>Use this template to quickly configure multiple companies:</p>
                     <textarea id="configTemplate" readonly>
 {
-  "emailAlerts": true,
-  "smsAlerts": false,
-  "uptimeMonitoring": true,
-  "performanceTracking": true,
-  "errorLogging": true,
-  "securityScanning": false,
-  "backupMonitoring": true,
-  "apiMonitoring": true
+  "daysBack": 7,
+  "maxProducts": 50,
+  "checkFrequency": "weekly",
+  "isEnabled": true
 }</textarea>
                     <button class="btn btn-secondary" onclick="copyConfigTemplate()">Copy Template</button>
                     <button class="btn btn-primary" onclick="applyConfigTemplate()">Apply from Clipboard</button>
@@ -489,19 +504,16 @@
                     <thead>
                         <tr>
                             <th>Company</th>
-                            <th>Email</th>
-                            <th>SMS</th>
-                            <th>Uptime</th>
-                            <th>Performance</th>
-                            <th>Error Log</th>
-                            <th>Security</th>
-                            <th>Backup</th>
-                            <th>API</th>
+                            <th>Days Back</th>
+                            <th>Max Products</th>
+                            <th>Frequency</th>
+                            <th>Enabled</th>
+                            <th>Last Monitored</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="monitoringTableBody">
-                        <tr><td colspan="10">Loading...</td></tr>
+                        <tr><td colspan="7">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -633,7 +645,10 @@
         // Company management functions
         async function addCompany() {
             const name = document.getElementById('companyName').value.trim();
-            const website = document.getElementById('companyWebsite').value.trim();
+            const url = document.getElementById('companyUrl').value.trim();
+            const domain = document.getElementById('companyDomain').value.trim();
+            const industry = document.getElementById('companyIndustry').value.trim();
+            const description = document.getElementById('companyDescription').value.trim();
             
             if (!name) {
                 showAlert('companies', 'Company name is required', 'error');
@@ -643,12 +658,21 @@
             try {
                 await apiCall('/companies', {
                     method: 'POST',
-                    body: JSON.stringify({ name, website: website || null })
+                    body: JSON.stringify({ 
+                        name, 
+                        url: url || null,
+                        domain: domain || null,
+                        industry: industry || null,
+                        description: description || null
+                    })
                 });
                 
                 // Clear form
                 document.getElementById('companyName').value = '';
-                document.getElementById('companyWebsite').value = '';
+                document.getElementById('companyUrl').value = '';
+                document.getElementById('companyDomain').value = '';
+                document.getElementById('companyIndustry').value = '';
+                document.getElementById('companyDescription').value = '';
                 
                 showAlert('companies', `Company "${name}" added successfully!`, 'success');
                 loadCompanies();
@@ -673,7 +697,13 @@
                 companyNames = bulkInput.split('\n').map(name => name.trim()).filter(name => name);
             }
 
-            const companiesToAdd = companyNames.map(name => ({ name, website: null }));
+            const companiesToAdd = companyNames.map(name => ({ 
+                name, 
+                url: null, 
+                domain: null, 
+                industry: null, 
+                description: null 
+            }));
 
             try {
                 const result = await apiCall('/companies/bulk', {
@@ -691,7 +721,7 @@
 
         async function loadCompanies() {
             const tbody = document.getElementById('companiesTableBody');
-            tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9">Loading...</td></tr>';
             
             try {
                 companies = await apiCall('/companies');
@@ -699,7 +729,7 @@
                 tbody.innerHTML = '';
                 
                 if (companies.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5">No companies found. Add some companies above.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9">No companies found. Add some companies above.</td></tr>';
                     return;
                 }
                 
@@ -709,16 +739,37 @@
                     row.innerHTML = `
                         <td>${company.id}</td>
                         <td>${company.name}</td>
-                        <td>${company.website || 'N/A'}</td>
+                        <td>${company.url ? `<a href="${company.url}" target="_blank">${company.url}</a>` : 'N/A'}</td>
+                        <td>${company.domain || 'N/A'}</td>
+                        <td>${company.industry || 'N/A'}</td>
+                        <td>${company.description ? (company.description.length > 50 ? company.description.substring(0, 50) + '...' : company.description) : 'N/A'}</td>
+                        <td>${company.is_active ? '✅' : '❌'}</td>
                         <td>${createdDate}</td>
                         <td>
+                            <button class="btn btn-primary" onclick="toggleCompanyStatus(${company.id}, ${!company.is_active})" style="margin-bottom: 5px;">
+                                ${company.is_active ? 'Deactivate' : 'Activate'}
+                            </button>
                             <button class="btn btn-danger" onclick="deleteCompany(${company.id})">Delete</button>
                         </td>
                     `;
                 });
             } catch (error) {
-                tbody.innerHTML = `<tr><td colspan="5">Error loading companies: ${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9">Error loading companies: ${error.message}</td></tr>`;
                 showAlert('companies', `Failed to load companies: ${error.message}`, 'error');
+            }
+        }
+
+        async function toggleCompanyStatus(id, newStatus) {
+            try {
+                await apiCall(`/companies/${id}/status`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ is_active: newStatus })
+                });
+                
+                showAlert('companies', `Company ${newStatus ? 'activated' : 'deactivated'} successfully!`, 'success');
+                loadCompanies();
+            } catch (error) {
+                showAlert('companies', `Failed to update company status: ${error.message}`, 'error');
             }
         }
 
@@ -846,14 +897,10 @@
 
             const config = {
                 company_id: companyId,
-                email_alerts: document.getElementById('emailAlerts').checked,
-                sms_alerts: document.getElementById('smsAlerts').checked,
-                uptime_monitoring: document.getElementById('uptimeMonitoring').checked,
-                performance_tracking: document.getElementById('performanceTracking').checked,
-                error_logging: document.getElementById('errorLogging').checked,
-                security_scanning: document.getElementById('securityScanning').checked,
-                backup_monitoring: document.getElementById('backupMonitoring').checked,
-                api_monitoring: document.getElementById('apiMonitoring').checked
+                days_back: parseInt(document.getElementById('daysBack').value) || 7,
+                max_products: parseInt(document.getElementById('maxProducts').value) || 50,
+                check_frequency: document.getElementById('checkFrequency').value,
+                is_enabled: document.getElementById('isEnabled').checked
             };
 
             try {
@@ -873,7 +920,7 @@
 
         async function loadMonitoringConfigs() {
             const tbody = document.getElementById('monitoringTableBody');
-            tbody.innerHTML = '<tr><td colspan="10">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
             
             try {
                 monitoringConfigs = await apiCall('/monitoring-configs');
@@ -881,22 +928,22 @@
                 tbody.innerHTML = '';
                 
                 if (monitoringConfigs.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="10">No monitoring configurations found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7">No monitoring configurations found.</td></tr>';
                     return;
                 }
                 
                 monitoringConfigs.forEach(config => {
                     const row = tbody.insertRow();
+                    const lastMonitored = config.last_monitored ? 
+                        new Date(config.last_monitored).toLocaleDateString() : 'Never';
+                    
                     row.innerHTML = `
                         <td>${config.company_name || 'N/A'}</td>
-                        <td>${config.email_alerts ? '✅' : '❌'}</td>
-                        <td>${config.sms_alerts ? '✅' : '❌'}</td>
-                        <td>${config.uptime_monitoring ? '✅' : '❌'}</td>
-                        <td>${config.performance_tracking ? '✅' : '❌'}</td>
-                        <td>${config.error_logging ? '✅' : '❌'}</td>
-                        <td>${config.security_scanning ? '✅' : '❌'}</td>
-                        <td>${config.backup_monitoring ? '✅' : '❌'}</td>
-                        <td>${config.api_monitoring ? '✅' : '❌'}</td>
+                        <td>${config.days_back || 7}</td>
+                        <td>${config.max_products || 50}</td>
+                        <td>${config.check_frequency || 'weekly'}</td>
+                        <td>${config.is_enabled ? '✅ Enabled' : '❌ Disabled'}</td>
+                        <td>${lastMonitored}</td>
                         <td>
                             <button class="btn btn-primary" onclick="editMonitoringConfig(${config.company_id})">Edit</button>
                             <button class="btn btn-danger" onclick="deleteMonitoringConfig(${config.company_id})">Delete</button>
@@ -904,7 +951,7 @@
                     `;
                 });
             } catch (error) {
-                tbody.innerHTML = `<tr><td colspan="10">Error loading configs: ${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7">Error loading configs: ${error.message}</td></tr>`;
                 showAlert('monitoring', `Failed to load monitoring configs: ${error.message}`, 'error');
             }
         }
@@ -914,14 +961,10 @@
             if (!config) return;
 
             document.getElementById('monitoringCompany').value = companyId;
-            document.getElementById('emailAlerts').checked = config.email_alerts;
-            document.getElementById('smsAlerts').checked = config.sms_alerts;
-            document.getElementById('uptimeMonitoring').checked = config.uptime_monitoring;
-            document.getElementById('performanceTracking').checked = config.performance_tracking;
-            document.getElementById('errorLogging').checked = config.error_logging;
-            document.getElementById('securityScanning').checked = config.security_scanning;
-            document.getElementById('backupMonitoring').checked = config.backup_monitoring;
-            document.getElementById('apiMonitoring').checked = config.api_monitoring;
+            document.getElementById('daysBack').value = config.days_back || 7;
+            document.getElementById('maxProducts').value = config.max_products || 50;
+            document.getElementById('checkFrequency').value = config.check_frequency || 'weekly';
+            document.getElementById('isEnabled').checked = config.is_enabled !== false;
         }
 
         async function deleteMonitoringConfig(companyId) {
@@ -940,7 +983,10 @@
 
         function clearMonitoringForm() {
             document.getElementById('monitoringCompany').value = '';
-            document.querySelectorAll('#configGrid input[type="checkbox"]').forEach(cb => cb.checked = false);
+            document.getElementById('daysBack').value = '7';
+            document.getElementById('maxProducts').value = '50';
+            document.getElementById('checkFrequency').value = 'weekly';
+            document.getElementById('isEnabled').checked = true;
         }
 
         function copyConfigTemplate() {
@@ -954,12 +1000,12 @@
             navigator.clipboard.readText().then(text => {
                 try {
                     const config = JSON.parse(text);
-                    Object.keys(config).forEach(key => {
-                        const element = document.getElementById(key);
-                        if (element && element.type === 'checkbox') {
-                            element.checked = config[key];
-                        }
-                    });
+                    
+                    if (config.daysBack) document.getElementById('daysBack').value = config.daysBack;
+                    if (config.maxProducts) document.getElementById('maxProducts').value = config.maxProducts;
+                    if (config.checkFrequency) document.getElementById('checkFrequency').value = config.checkFrequency;
+                    if (config.isEnabled !== undefined) document.getElementById('isEnabled').checked = config.isEnabled;
+                    
                     showAlert('monitoring', 'Configuration template applied successfully!', 'success');
                 } catch (error) {
                     showAlert('monitoring', 'Invalid JSON format in clipboard', 'error');
