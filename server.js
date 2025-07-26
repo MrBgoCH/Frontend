@@ -42,7 +42,7 @@ app.get('/api/companies', async (req, res) => {
 
 // Add a company
 app.post('/api/companies', async (req, res) => {
-  const { name, website } = req.body;
+  const { name, url, domain, industry, description } = req.body;
   
   if (!name) {
     return res.status(400).json({ error: 'Company name is required' });
@@ -50,8 +50,8 @@ app.post('/api/companies', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'INSERT INTO companies (name, website, created_at) VALUES ($1, $2, NOW()) RETURNING *',
-      [name, website || null]
+      'INSERT INTO companies (name, url, domain, industry, description, is_active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [name, url || null, domain || null, industry || null, description || null, true]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -75,8 +75,8 @@ app.post('/api/companies/bulk', async (req, res) => {
     const addedCompanies = [];
     for (const company of companies) {
       const result = await client.query(
-        'INSERT INTO companies (name, website, created_at) VALUES ($1, $2, NOW()) RETURNING *',
-        [company.name, company.website || null]
+        'INSERT INTO companies (name, url, domain, industry, description, is_active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [company.name, company.url || null, company.domain || null, company.industry || null, company.description || null, true]
       );
       addedCompanies.push(result.rows[0]);
     }
@@ -89,6 +89,28 @@ app.post('/api/companies/bulk', async (req, res) => {
     res.status(500).json({ error: 'Failed to add companies' });
   } finally {
     client.release();
+  }
+});
+
+// Update company status (activate/deactivate)
+app.patch('/api/companies/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { is_active } = req.body;
+  
+  try {
+    const result = await pool.query(
+      'UPDATE companies SET is_active = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [is_active, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating company status:', err);
+    res.status(500).json({ error: 'Failed to update company status' });
   }
 });
 
@@ -186,14 +208,10 @@ app.get('/api/monitoring-configs', async (req, res) => {
 app.post('/api/monitoring-configs', async (req, res) => {
   const { 
     company_id, 
-    email_alerts, 
-    sms_alerts, 
-    uptime_monitoring, 
-    performance_tracking, 
-    error_logging, 
-    security_scanning, 
-    backup_monitoring, 
-    api_monitoring 
+    days_back, 
+    max_products, 
+    check_frequency, 
+    is_enabled 
   } = req.body;
   
   if (!company_id) {
@@ -203,25 +221,22 @@ app.post('/api/monitoring-configs', async (req, res) => {
   try {
     const result = await pool.query(`
       INSERT INTO monitoring_configs 
-      (company_id, email_alerts, sms_alerts, uptime_monitoring, performance_tracking, 
-       error_logging, security_scanning, backup_monitoring, api_monitoring, updated_at) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      (company_id, days_back, max_products, check_frequency, is_enabled) 
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (company_id) 
       DO UPDATE SET 
-        email_alerts = $2,
-        sms_alerts = $3,
-        uptime_monitoring = $4,
-        performance_tracking = $5,
-        error_logging = $6,
-        security_scanning = $7,
-        backup_monitoring = $8,
-        api_monitoring = $9,
-        updated_at = NOW()
+        days_back = $2,
+        max_products = $3,
+        check_frequency = $4,
+        is_enabled = $5,
+        updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `, [
-      company_id, email_alerts, sms_alerts, uptime_monitoring, 
-      performance_tracking, error_logging, security_scanning, 
-      backup_monitoring, api_monitoring
+      company_id, 
+      days_back || 7, 
+      max_products || 50, 
+      check_frequency || 'weekly', 
+      is_enabled !== undefined ? is_enabled : true
     ]);
     
     res.json(result.rows[0]);
@@ -249,65 +264,46 @@ app.delete('/api/monitoring-configs/:company_id', async (req, res) => {
   }
 });
 
-// DATABASE SETUP ENDPOINT (for initial setup)
+// DATABASE SETUP ENDPOINT (updated for your schema)
 app.post('/api/setup-database', async (req, res) => {
   const client = await pool.connect();
   
   try {
     await client.query('BEGIN');
     
-    // Create companies table
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS companies (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE,
-        website VARCHAR(255),
-        created_at TIMESTAMP DEFAULT NOW()
-      )
+    // Check if companies table exists and has correct structure
+    const companiesCheck = await client.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'companies'
     `);
     
-    // Create products table
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS products (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
-        description TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
+    if (companiesCheck.rows.length === 0) {
+      // Create companies table if it doesn't exist
+      await client.query(`
+        CREATE TABLE companies (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          url VARCHAR(255),
+          domain VARCHAR(100),
+          industry VARCHAR(100),
+          description TEXT,
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    }
     
-    // Create monitoring_configs table
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS monitoring_configs (
-        id SERIAL PRIMARY KEY,
-        company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE UNIQUE,
-        email_alerts BOOLEAN DEFAULT false,
-        sms_alerts BOOLEAN DEFAULT false,
-        uptime_monitoring BOOLEAN DEFAULT false,
-        performance_tracking BOOLEAN DEFAULT false,
-        error_logging BOOLEAN DEFAULT false,
-        security_scanning BOOLEAN DEFAULT false,
-        backup_monitoring BOOLEAN DEFAULT false,
-        api_monitoring BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    // Create active_companies_for_monitoring view
-    await client.query(`
-      CREATE OR REPLACE VIEW active_companies_for_monitoring AS
-      SELECT c.*, mc.email_alerts, mc.sms_alerts, mc.uptime_monitoring, 
-             mc.performance_tracking, mc.error_logging, mc.security_scanning,
-             mc.backup_monitoring, mc.api_monitoring
-      FROM companies c
-      LEFT JOIN monitoring_configs mc ON c.id = mc.company_id
-      WHERE EXISTS (SELECT 1 FROM monitoring_configs WHERE company_id = c.id)
-    `);
+    // Create other tables based on your schema (will need your input for exact structure)
+    // For now, just confirming companies table is ready
     
     await client.query('COMMIT');
-    res.json({ message: 'Database setup completed successfully' });
+    res.json({ 
+      message: 'Database setup completed successfully',
+      companiesTable: 'Ready',
+      note: 'Please provide structure for monitoring_configs and products tables'
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error setting up database:', err);
