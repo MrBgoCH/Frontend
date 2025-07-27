@@ -1087,29 +1087,21 @@
             };
 
             try {
-                // Check if this is an update (config already exists) or new creation
-                const existingConfig = monitoringConfigs.find(c => c.company_id == companyId);
-                
-                if (existingConfig) {
-                    // Update existing config
-                    await apiCall(`/monitoring-configs/${companyId}`, {
-                        method: 'PUT',
-                        body: JSON.stringify(config)
-                    });
-                } else {
-                    // Create new config
-                    await apiCall('/monitoring-configs', {
-                        method: 'POST',
-                        body: JSON.stringify(config)
-                    });
-                }
+                // Use POST for both create and update - let the backend handle upsert logic
+                await apiCall('/monitoring-configs', {
+                    method: 'POST',
+                    body: JSON.stringify(config)
+                });
 
                 const company = companies.find(c => c.id == companyId);
+                const existingConfig = monitoringConfigs.find(c => c.company_id == companyId);
                 const action = existingConfig ? 'updated' : 'created';
+                
                 showAlert('monitoring', `Monitoring configuration ${action} for ${company?.name || 'selected company'}!`, 'success');
                 loadMonitoringConfigs();
                 clearMonitoringForm();
             } catch (error) {
+                console.error('Monitoring config save error:', error);
                 showAlert('monitoring', `Failed to save monitoring config: ${error.message}`, 'error');
             }
         }
