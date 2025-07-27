@@ -634,7 +634,7 @@
                 </div>
 
                 <button class="btn btn-primary" onclick="saveMonitoringConfig()">Save Configuration</button>
-                <button class="btn btn-secondary" onclick="loadMonitoringConfigs()">Refresh List</button>
+                <button class="btn btn-secondary" onclick="loadMonitoringConfigs(); clearMonitoringForm();">Refresh List</button>
 
                 <h3>Current Monitoring Configurations</h3>
                 <div class="table-container">
@@ -1087,13 +1087,26 @@
             };
 
             try {
-                await apiCall('/monitoring-configs', {
-                    method: 'POST',
-                    body: JSON.stringify(config)
-                });
+                // Check if this is an update (config already exists) or new creation
+                const existingConfig = monitoringConfigs.find(c => c.company_id == companyId);
+                
+                if (existingConfig) {
+                    // Update existing config
+                    await apiCall(`/monitoring-configs/${companyId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(config)
+                    });
+                } else {
+                    // Create new config
+                    await apiCall('/monitoring-configs', {
+                        method: 'POST',
+                        body: JSON.stringify(config)
+                    });
+                }
 
                 const company = companies.find(c => c.id == companyId);
-                showAlert('monitoring', `Monitoring configuration saved for ${company?.name || 'selected company'}!`, 'success');
+                const action = existingConfig ? 'updated' : 'created';
+                showAlert('monitoring', `Monitoring configuration ${action} for ${company?.name || 'selected company'}!`, 'success');
                 loadMonitoringConfigs();
                 clearMonitoringForm();
             } catch (error) {
@@ -1143,11 +1156,26 @@
             const config = monitoringConfigs.find(c => c.company_id == companyId);
             if (!config) return;
 
+            // Populate the form with existing values
             document.getElementById('monitoringCompany').value = companyId;
             document.getElementById('daysBack').value = config.days_back || 7;
             document.getElementById('maxProducts').value = config.max_products || 50;
             document.getElementById('checkFrequency').value = config.check_frequency || 'weekly';
             document.getElementById('isEnabled').checked = config.is_enabled !== false;
+
+            // Update the save button text to indicate we're editing
+            const saveBtn = document.querySelector('button[onclick="saveMonitoringConfig()"]');
+            if (saveBtn) {
+                saveBtn.textContent = 'Update Configuration';
+                saveBtn.classList.add('btn-warning');
+                saveBtn.classList.remove('btn-primary');
+            }
+
+            // Scroll to the form
+            document.getElementById('monitoringCompany').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Show alert to indicate editing mode
+            showAlert('monitoring', `Editing configuration for ${config.company_name}. Make your changes and click "Update Configuration".`, 'success');
         }
 
         async function deleteMonitoringConfig(companyId) {
@@ -1170,6 +1198,14 @@
             document.getElementById('maxProducts').value = '50';
             document.getElementById('checkFrequency').value = 'weekly';
             document.getElementById('isEnabled').checked = true;
+
+            // Reset the save button to default state
+            const saveBtn = document.querySelector('button[onclick="saveMonitoringConfig()"]');
+            if (saveBtn) {
+                saveBtn.textContent = 'Save Configuration';
+                saveBtn.classList.add('btn-primary');
+                saveBtn.classList.remove('btn-warning');
+            }
         }
 
         function copyConfigTemplate() {
