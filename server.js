@@ -132,15 +132,17 @@ app.delete('/api/companies/:id', async (req, res) => {
   }
 });
 
-// PRODUCTS ENDPOINTS
-// Get all products
+// PRODUCTS ENDPOINTS - UPDATED FOR FULL SHOPIFY SCHEMA
+// Get all products with company information
 app.get('/api/products', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT p.*, c.name as company_name 
+      SELECT 
+        p.*,
+        c.name as company_name 
       FROM products p 
       LEFT JOIN companies c ON p.company_id = c.id 
-      ORDER BY p.id
+      ORDER BY p.first_seen DESC, p.id DESC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -149,23 +151,204 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// Add a product
+// Add a product with full Shopify schema
 app.post('/api/products', async (req, res) => {
-  const { name, company_id, description } = req.body;
+  const { 
+    company_id,
+    shopify_product_id,
+    title,
+    handle,
+    product_type,
+    vendor,
+    price,
+    created_at_shopify,
+    days_old_when_found,
+    product_url,
+    main_image_url,
+    tags,
+    first_seen,
+    last_seen,
+    is_new_product
+  } = req.body;
   
-  if (!name || !company_id) {
-    return res.status(400).json({ error: 'Product name and company ID are required' });
+  // Validate required fields
+  if (!company_id || !title) {
+    return res.status(400).json({ error: 'Company ID and product title are required' });
   }
 
   try {
-    const result = await pool.query(
-      'INSERT INTO products (name, company_id, description, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
-      [name, company_id, description || null]
-    );
+    const result = await pool.query(`
+      INSERT INTO products (
+        company_id, shopify_product_id, title, handle, product_type, vendor, 
+        price, created_at_shopify, days_old_when_found, product_url, 
+        main_image_url, tags, first_seen, last_seen, is_new_product
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) 
+      RETURNING *
+    `, [
+      company_id,
+      shopify_product_id || null,
+      title,
+      handle || null,
+      product_type || null,
+      vendor || null,
+      price || null,
+      created_at_shopify || null,
+      days_old_when_found || null,
+      product_url || null,
+      main_image_url || null,
+      tags || null,
+      first_seen || new Date(),
+      last_seen || new Date(),
+      is_new_product !== undefined ? is_new_product : true
+    ]);
+    
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error adding product:', err);
-    res.status(500).json({ error: 'Failed to add product' });
+    if (err.code === '23505') { // Unique constraint violation
+      res.status(409).json({ error: 'Product with this Shopify ID already exists for this company' });
+    } else {
+      res.status(500).json({ error: 'Failed to add product' });
+    }
+  }
+});
+
+// Bulk add products
+app.post('/api/products/bulk', async (req, res) => {
+  const { products } = req.body;
+  
+  if (!products || !Array.isArray(products)) {
+    return res.status(400).json({ error: 'Products array is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const addedProducts = [];
+    const skippedProducts = [];
+    
+    for (const product of products) {
+      try {
+        const result = await client.query(`
+          INSERT INTO products (
+            company_id, shopify_product_id, title, handle, product_type, vendor, 
+            price, created_at_shopify, days_old_when_found, product_url, 
+            main_image_url, tags, first_seen, last_seen, is_new_product
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) 
+          RETURNING *
+        `, [
+          product.company_id,
+          product.shopify_product_id || null,
+          product.title,
+          product.handle || null,
+          product.product_type || null,
+          product.vendor || null,
+          product.price || null,
+          product.created_at_shopify || null,
+          product.days_old_when_found || null,
+          product.product_url || null,
+          product.main_image_url || null,
+          product.tags || null,
+          product.first_seen || new Date(),
+          product.last_seen || new Date(),
+          product.is_new_product !== undefined ? product.is_new_product : true
+        ]);
+        addedProducts.push(result.rows[0]);
+      } catch (err) {
+        if (err.code === '23505') {
+          skippedProducts.push({ ...product, reason: 'Duplicate Shopify ID' });
+        } else {
+          throw err; // Re-throw other errors
+        }
+      }
+    }
+    
+    await client.query('COMMIT');
+    res.status(201).json({ 
+      products: addedProducts, 
+      added: addedProducts.length,
+      skipped: skippedProducts.length,
+      skippedProducts
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error bulk adding products:', err);
+    res.status(500).json({ error: 'Failed to add products' });
+  } finally {
+    client.release();
+  }
+});
+
+// Update a product
+app.put('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  const { 
+    company_id,
+    shopify_product_id,
+    title,
+    handle,
+    product_type,
+    vendor,
+    price,
+    created_at_shopify,
+    days_old_when_found,
+    product_url,
+    main_image_url,
+    tags,
+    last_seen,
+    is_new_product
+  } = req.body;
+  
+  if (!title) {
+    return res.status(400).json({ error: 'Product title is required' });
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE products SET 
+        company_id = $1,
+        shopify_product_id = $2,
+        title = $3,
+        handle = $4,
+        product_type = $5,
+        vendor = $6,
+        price = $7,
+        created_at_shopify = $8,
+        days_old_when_found = $9,
+        product_url = $10,
+        main_image_url = $11,
+        tags = $12,
+        last_seen = $13,
+        is_new_product = $14
+      WHERE id = $15 
+      RETURNING *
+    `, [
+      company_id,
+      shopify_product_id,
+      title,
+      handle,
+      product_type,
+      vendor,
+      price,
+      created_at_shopify,
+      days_old_when_found,
+      product_url,
+      main_image_url,
+      tags,
+      last_seen || new Date(),
+      is_new_product,
+      id
+    ]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating product:', err);
+    res.status(500).json({ error: 'Failed to update product' });
   }
 });
 
@@ -184,6 +367,26 @@ app.delete('/api/products/:id', async (req, res) => {
   } catch (err) {
     console.error('Error deleting product:', err);
     res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
+// Get products by company
+app.get('/api/products/company/:companyId', async (req, res) => {
+  const { companyId } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT p.*, c.name as company_name 
+      FROM products p 
+      LEFT JOIN companies c ON p.company_id = c.id 
+      WHERE p.company_id = $1 
+      ORDER BY p.first_seen DESC
+    `, [companyId]);
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching products by company:', err);
+    res.status(500).json({ error: 'Failed to fetch products' });
   }
 });
 
@@ -264,7 +467,29 @@ app.delete('/api/monitoring-configs/:company_id', async (req, res) => {
   }
 });
 
-// DATABASE SETUP ENDPOINT (updated for your schema)
+// STATISTICS ENDPOINT - New for enhanced admin panel
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [companiesResult, productsResult, newProductsResult, configsResult] = await Promise.all([
+      pool.query('SELECT COUNT(*) as count FROM companies'),
+      pool.query('SELECT COUNT(*) as count FROM products'),
+      pool.query('SELECT COUNT(*) as count FROM products WHERE is_new_product = true'),
+      pool.query('SELECT COUNT(*) as count FROM monitoring_configs WHERE is_enabled = true')
+    ]);
+
+    res.json({
+      totalCompanies: parseInt(companiesResult.rows[0].count),
+      totalProducts: parseInt(productsResult.rows[0].count),
+      newProducts: parseInt(newProductsResult.rows[0].count),
+      activeConfigs: parseInt(configsResult.rows[0].count)
+    });
+  } catch (err) {
+    console.error('Error fetching statistics:', err);
+    res.status(500).json({ error: 'Failed to fetch statistics' });
+  }
+});
+
+// DATABASE SETUP ENDPOINT - Updated with full products table
 app.post('/api/setup-database', async (req, res) => {
   const client = await pool.connect();
   
@@ -320,12 +545,44 @@ app.post('/api/setup-database', async (req, res) => {
       `);
     }
     
-    // Check if products table exists (will be created once you provide structure)
+    // Check if products table exists with full schema
     const productsCheck = await client.query(`
       SELECT column_name, data_type 
       FROM information_schema.columns 
       WHERE table_name = 'products'
     `);
+    
+    if (productsCheck.rows.length === 0) {
+      // Create products table with full Shopify schema
+      await client.query(`
+        CREATE TABLE products (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+          shopify_product_id BIGINT,
+          title VARCHAR(500) NOT NULL,
+          handle VARCHAR(255),
+          product_type VARCHAR(100),
+          vendor VARCHAR(100),
+          price NUMERIC(10,2),
+          created_at_shopify TIMESTAMP,
+          days_old_when_found INTEGER,
+          product_url TEXT,
+          main_image_url TEXT,
+          tags TEXT,
+          first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          is_new_product BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(company_id, shopify_product_id)
+        )
+      `);
+      
+      // Create indexes for better performance
+      await client.query('CREATE INDEX idx_products_company_id ON products(company_id)');
+      await client.query('CREATE INDEX idx_products_shopify_id ON products(shopify_product_id)');
+      await client.query('CREATE INDEX idx_products_is_new ON products(is_new_product)');
+      await client.query('CREATE INDEX idx_products_first_seen ON products(first_seen)');
+    }
     
     // Create active_companies_for_monitoring view
     await client.query(`
@@ -342,8 +599,9 @@ app.post('/api/setup-database', async (req, res) => {
       message: 'Database setup completed successfully',
       companiesTable: 'Ready',
       monitoringConfigsTable: 'Ready',
-      productsTable: productsCheck.rows.length > 0 ? 'Exists' : 'Waiting for structure',
-      activeCompaniesView: 'Created'
+      productsTable: 'Ready with full Shopify schema',
+      activeCompaniesView: 'Created',
+      indexes: 'Created for better performance'
     });
   } catch (err) {
     await client.query('ROLLBACK');
